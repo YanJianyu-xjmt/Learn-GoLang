@@ -23,6 +23,7 @@ const (
 )
 
 type hchan struct {
+	// 所有的data数目
 	qcount   uint           // total data in the queue
 	dataqsiz uint           // size of the circular queue
 	buf      unsafe.Pointer // points to an array of dataqsiz elements
@@ -61,13 +62,16 @@ func makechan(t *chantype, size int64) *hchan {
 	}
 
 	var c *hchan
+	// 如果size为0 或者元素不是指针类型
 	if elem.kind&kindNoPointers != 0 || size == 0 {
 		// Allocate memory in one call.
-		// Hchan does not contain pointers interesting for GC in this case:
+		// Hchan does not contain pointers interesting for GC in this case:   hchan不包含GC感兴趣的指针
 		// buf points into the same allocation, elemtype is persistent.
 		// SudoG's are referenced from their owning thread so they can't be collected.
 		// TODO(dvyukov,rlh): Rethink when collector can move allocated objects.
+		// 一次性分配所有的空间
 		c = (*hchan)(mallocgc(hchanSize+uintptr(size)*uintptr(elem.size), nil, flagNoScan))
+		// 计算buf风险指针的  偏移量
 		if size > 0 && elem.size != 0 {
 			c.buf = add(unsafe.Pointer(c), hchanSize)
 		} else {
