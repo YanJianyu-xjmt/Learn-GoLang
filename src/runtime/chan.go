@@ -62,14 +62,16 @@ func makechan(t *chantype, size int64) *hchan {
 	}
 
 	var c *hchan
-	// 如果size为0 或者元素不是指针类型
+	// 如果size为0 或者元素不是指针类型 不需要gc
+	
+	// 如果不包含指针 那么直接分配 不需要缓冲区 
 	if elem.kind&kindNoPointers != 0 || size == 0 {
 		// Allocate memory in one call.
 		// Hchan does not contain pointers interesting for GC in this case:   hchan不包含GC感兴趣的指针
 		// buf points into the same allocation, elemtype is persistent.
 		// SudoG's are referenced from their owning thread so they can't be collected.
 		// TODO(dvyukov,rlh): Rethink when collector can move allocated objects.
-		// 一次性分配所有的空间
+		// 一次性分配所有的空间  没有指针类型 不会被GC所有直接风险指针分配就好了
 		c = (*hchan)(mallocgc(hchanSize+uintptr(size)*uintptr(elem.size), nil, flagNoScan))
 		// 计算buf风险指针的  偏移量
 		if size > 0 && elem.size != 0 {
@@ -87,6 +89,7 @@ func makechan(t *chantype, size int64) *hchan {
 	c.elemtype = elem
 	c.dataqsiz = uint(size)
 
+	
 	if debugChan {
 		print("makechan: chan=", c, "; elemsize=", elem.size, "; elemalg=", elem.alg, "; dataqsiz=", size, "\n")
 	}
@@ -94,6 +97,7 @@ func makechan(t *chantype, size int64) *hchan {
 }
 
 // chanbuf(c, i) is pointer to the i'th slot in the buffer.
+// 返回第 i个元素
 func chanbuf(c *hchan, i uint) unsafe.Pointer {
 	return add(c.buf, uintptr(i)*uintptr(c.elemsize))
 }
@@ -116,6 +120,7 @@ func chansend1(t *chantype, c *hchan, elem unsafe.Pointer) {
  * been closed.  it is easiest to loop and re-run
  * the operation; we'll see that it's now closed.
  */
+ //	chansend send函数 
 func chansend(t *chantype, c *hchan, ep unsafe.Pointer, block bool, callerpc uintptr) bool {
 	if raceenabled {
 		raceReadObjectPC(t.elem, ep, callerpc, funcPC(chansend))
