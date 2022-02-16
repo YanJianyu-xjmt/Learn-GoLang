@@ -34,3 +34,22 @@ type itab struct {
 ```
 
 这里是新的itab
+
+首先这个 代码里面 interfacetype是另外一个结构体
+
+```
+type interfacetype struct {
+    typ  _type
+    mhdr []imethod
+}
+```
+
+感觉是存interface 信息结构体 因为在iface才有 eface 没有 ，mhdr感觉就是函数记录
+
+inter 是记录interface的类型信息
+
+type 是指向 实际类型的描述信息
+
+fun 是函数函数列表
+
+- ITAB
