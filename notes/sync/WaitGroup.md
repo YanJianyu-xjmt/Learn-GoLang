@@ -104,7 +104,7 @@ func (wg *WaitGroup) Add(delta int) {
 		runtime_Semrelease(semap, false, 0)
 	}
 }
-
+减少
 // Done decrements the WaitGroup counter by one.
 func (wg *WaitGroup) Done() {
 	wg.Add(-1)
