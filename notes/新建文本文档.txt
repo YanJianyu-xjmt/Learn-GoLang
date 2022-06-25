@@ -1,0 +1,1 @@
+go Proxy https://goproxy.io/zh/
