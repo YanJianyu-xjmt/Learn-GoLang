@@ -211,4 +211,142 @@ func WithValue(parent Context, key, val any) Context
 
 写入keyval 
 
+# 
 
+# 3 源码解读
+
+## 3.2 backGroud
+
+```
+func Background() Context {
+    return background
+}
+
+// TODO returns a non-nil, empty Context. Code should use context.TODO when
+// it's unclear which Context to use or it is not yet available (because the
+// surrounding function has not yet been extended to accept a Context
+// parameter).
+func TODO() Context {
+    return todo
+}
+// An emptyCtx is never canceled, has no values, and has no deadline. It is not
+// struct{}, since vars of this type must have distinct addresses.
+type emptyCtx int
+```
+
+返回的都是emptyCtx，emptyCtx 实际上就是个int
+
+```
+func (*emptyCtx) Deadline() (deadline time.Time, ok bool) {
+    return
+}
+
+func (*emptyCtx) Done() <-chan struct{} {
+    return nil
+}
+
+func (*emptyCtx) Err() error {
+    return nil
+}
+
+func (*emptyCtx) Value(key interface{}) interface{} {
+    return nil
+}
+
+func (e *emptyCtx) String() string {
+    switch e {
+    case background:
+        return "context.Background"
+    case todo:
+        return "context.TODO"
+    }
+    return "unknown empty Context"
+}
+```
+
+实际上简单实现非常简单
+
+## 3. Cancel
+
+```
+// A cancelCtx can be canceled. When canceled, it also cancels any children
+// that implement canceler.
+type cancelCtx struct {
+    Context
+
+    mu       sync.Mutex            // protects following fields
+    done     atomic.Value          // of chan struct{}, created lazily, closed by first cancel call
+    children map[canceler]struct{} // set to nil by the first cancel call
+    err      error                 // set to non-nil by the first cancel call
+}
+```
+
+这里的组合非常。context。
+
+然后 包含了一些标志位和 锁  done应该是标志位，children 应该是子的方法
+}
+
+```
+
+
+func (c *cancelCtx) Value(key interface{}) interface{} {
+	if key == &cancelCtxKey {
+		return c
+	}
+	return c.Context.Value(key)
+}
+
+func (c *cancelCtx) Done() <-chan struct{} {
+	d := c.done.Load()
+	if d != nil {
+		return d.(chan struct{})
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	d = c.done.Load()
+	if d == nil {
+		d = make(chan struct{})
+		c.done.Store(d)
+	}
+	return d.(chan struct{})
+}
+
+
+// cancel closes c.done, cancels each of c's children, and, if
+// removeFromParent is true, removes c from its parent's children.
+func (c *cancelCtx) cancel(removeFromParent bool, err error) {
+	if err == nil {
+		panic("context: internal error: missing cancel error")
+	}
+	c.mu.Lock()
+	if c.err != nil {
+		c.mu.Unlock()
+		return // already canceled
+	}
+	c.err = err
+	d, _ := c.done.Load().(chan struct{})
+	if d == nil {
+		c.done.Store(closedchan)
+	} else {
+		close(d)
+	}
+	for child := range c.children {
+		// NOTE: acquiring the child's lock while holding parent's lock.
+		child.cancel(false, err)
+	}
+	c.children = nil
+	c.mu.Unlock()
+
+	if removeFromParent {
+		removeChild(c.Context, c)
+	}
+}
+```
+
+比较有看点的就这两个函数，首先Done 
+
+先看有没有就返回
+
+
+
+然后 cancel 也挺有意思，要设置 err
