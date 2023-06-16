@@ -287,59 +287,57 @@ type cancelCtx struct {
 }
 
 ```
-
-
 func (c *cancelCtx) Value(key interface{}) interface{} {
-	if key == &cancelCtxKey {
-		return c
-	}
-	return c.Context.Value(key)
+    if key == &cancelCtxKey {
+        return c
+    }
+    return c.Context.Value(key)
 }
 
 func (c *cancelCtx) Done() <-chan struct{} {
-	d := c.done.Load()
-	if d != nil {
-		return d.(chan struct{})
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	d = c.done.Load()
-	if d == nil {
-		d = make(chan struct{})
-		c.done.Store(d)
-	}
-	return d.(chan struct{})
+    d := c.done.Load()
+    if d != nil {
+        return d.(chan struct{})
+    }
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    d = c.done.Load()
+    if d == nil {
+        d = make(chan struct{})
+        c.done.Store(d)
+    }
+    return d.(chan struct{})
 }
 
 
 // cancel closes c.done, cancels each of c's children, and, if
 // removeFromParent is true, removes c from its parent's children.
 func (c *cancelCtx) cancel(removeFromParent bool, err error) {
-	if err == nil {
-		panic("context: internal error: missing cancel error")
-	}
-	c.mu.Lock()
-	if c.err != nil {
-		c.mu.Unlock()
-		return // already canceled
-	}
-	c.err = err
-	d, _ := c.done.Load().(chan struct{})
-	if d == nil {
-		c.done.Store(closedchan)
-	} else {
-		close(d)
-	}
-	for child := range c.children {
-		// NOTE: acquiring the child's lock while holding parent's lock.
-		child.cancel(false, err)
-	}
-	c.children = nil
-	c.mu.Unlock()
+    if err == nil {
+        panic("context: internal error: missing cancel error")
+    }
+    c.mu.Lock()
+    if c.err != nil {
+        c.mu.Unlock()
+        return // already canceled
+    }
+    c.err = err
+    d, _ := c.done.Load().(chan struct{})
+    if d == nil {
+        c.done.Store(closedchan)
+    } else {
+        close(d)
+    }
+    for child := range c.children {
+        // NOTE: acquiring the child's lock while holding parent's lock.
+        child.cancel(false, err)
+    }
+    c.children = nil
+    c.mu.Unlock()
 
-	if removeFromParent {
-		removeChild(c.Context, c)
-	}
+    if removeFromParent {
+        removeChild(c.Context, c)
+    }
 }
 ```
 
@@ -347,6 +345,89 @@ func (c *cancelCtx) cancel(removeFromParent bool, err error) {
 
 先看有没有就返回
 
+然后 cancel 也挺有意思，就是设置 err，返回close 然后取消所有孩子
+
+# 3 withDeadline
+
+```
+// WithDeadline returns a copy of the parent context with the deadline adjusted
+// to be no later than d. If the parent's deadline is already earlier than d,
+// WithDeadline(parent, d) is semantically equivalent to parent. The returned
+// context's Done channel is closed when the deadline expires, when the returned
+// cancel function is called, or when the parent context's Done channel is
+// closed, whichever happens first.
+//
+// Canceling this context releases resources associated with it, so code should
+// call cancel as soon as the operations running in this Context complete.
+func WithDeadline(parent Context, d time.Time) (Context, CancelFunc) {
+    if parent == nil {
+        panic("cannot create context from nil parent")
+    }
+    if cur, ok := parent.Deadline(); ok && cur.Before(d) {
+        // The current deadline is already sooner than the new one.
+        return WithCancel(parent)
+    }
+    c := &timerCtx{
+        cancelCtx: newCancelCtx(parent),
+        deadline:  d,
+    }
+    propagateCancel(parent, c)
+    dur := time.Until(d)
+    if dur <= 0 {
+        c.cancel(true, DeadlineExceeded) // deadline has already passed
+        return c, func() { c.cancel(false, Canceled) }
+    }
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    if c.err == nil {
+        c.timer = time.AfterFunc(dur, func() {
+            c.cancel(true, DeadlineExceeded)
+        })
+    }
+    return c, func() { c.cancel(true, Canceled) }
+}
+```
+
+```
+type timerCtx struct {
+	cancelCtx
+	timer *time.Timer // Under cancelCtx.mu.
+
+	deadline time.Time
+}
+
+```
+
+Deadline是上面Cancel的组合timerctx 比较简单就是到了时间然后调用cancel
 
 
-然后 cancel 也挺有意思，要设置 err
+
+# KV
+
+```
+func WithValue(parent Context, key, val interface{}) Context {
+	if parent == nil {
+		panic("cannot create context from nil parent")
+	}
+	if key == nil {
+		panic("nil key")
+	}
+	if !reflectlite.TypeOf(key).Comparable() {
+		panic("key is not comparable")
+	}
+	return &valueCtx{parent, key, val}
+}
+```
+
+```
+type valueCtx struct {
+	Context
+	key, val interface{}
+}
+```
+
+
+
+大概就是比较简单
+
+比较简单
